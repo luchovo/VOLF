@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Caja Chica Enterprise</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <style>
+    body { background-color: #f6f8fb; }
+    .card { padding:2rem; background:white; border-radius:14px; box-shadow:0 8px 30px rgba(0,0,0,0.05); margin-bottom:2rem; }
+    .status-pendiente { color:#d97706; font-weight:bold; }
+    .status-aprobado { color:#059669; font-weight:bold; }
+    .status-rechazado { color:#dc2626; font-weight:bold; }
+    .hidden { display:none; }
+    img { border-radius:12px; }
+  </style>
+</head>
+
+<body>
+
+<nav class="container-fluid">
+  <ul>
+    <li><strong>Caja Chica Enterprise</strong></li>
+  </ul>
+  <ul>
+    <li><a href="#" onclick="loadExpenses()">Dashboard</a></li>
+    <li><a href="#" onclick="generateReport()">Reportes</a></li>
+    <li><a href="#" role="button" onclick="logout()">Cerrar sesión</a></li>
+  </ul>
+</nav>
+
+<main class="container">
+  <div class="grid">
+    <section>
+
+      <hgroup>
+        <h2>Sistema Empresarial de Control de Caja Chica</h2>
+        <h3>Gestión profesional con aprobación administrativa</h3>
+      </hgroup>
+
+      <p>
+        Plataforma segura y escalable para equipos de hasta 100+ usuarios.
+        Control total, reportes avanzados y almacenamiento persistente en Supabase.
+      </p>
+
+      <figure>
+        <img src="https://images.unsplash.com/photo-1554224155-6726b3ff858f" alt="Control financiero empresarial" />
+        <figcaption>
+          <a href="https://unsplash.com" target="_blank">Imagen profesional vía Unsplash</a>
+        </figcaption>
+      </figure>
+
+      <h3>Autenticación</h3>
+      <div class="card">
+        <input type="email" id="email" placeholder="Correo corporativo">
+        <input type="password" id="password" placeholder="Contraseña">
+        <button onclick="register()">Registrar</button>
+        <button onclick="login()">Ingresar</button>
+      </div>
+
+      <h3>Registrar Gasto</h3>
+      <div class="card">
+        <form id="expenseForm">
+          <input type="number" id="amount" placeholder="Monto" required>
+          <input type="text" id="category" placeholder="Categoría" required>
+          <input type="text" id="description" placeholder="Descripción" required>
+          <input type="file" id="receipt">
+          <button type="submit">Guardar gasto</button>
+        </form>
+      </div>
+
+      <h3>Filtros</h3>
+      <div class="card">
+        <input type="date" id="fromDate">
+        <input type="date" id="toDate">
+        <button onclick="generateReport()">Generar Reporte</button>
+        <button onclick="exportCSV()">Exportar CSV</button>
+      </div>
+
+      <h3>Listado de Gastos</h3>
+      <div class="card">
+        <table>
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Usuario</th>
+              <th>Monto</th>
+              <th>Categoría</th>
+              <th>Estado</th>
+              <th id="adminActions" class="hidden">Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="expensesTable"></tbody>
+        </table>
+      </div>
+
+    </section>
+  </div>
+</main>
+
+<section aria-label="Subscribe example">
+  <div class="container">
+    <article>
+      <hgroup>
+        <h2>Reportes Automáticos Empresariales</h2>
+        <h3>Envío mensual configurable (Edge Functions)</h3>
+      </hgroup>
+      <form class="grid">
+        <input type="text" id="firstname" name="firstname" placeholder="Nombre" aria-label="Nombre" required />
+        <input type="email" id="email_sub" name="email" placeholder="Email corporativo" aria-label="Email" required />
+        <button type="submit" onclick="event.preventDefault()">Configurar</button>
+      </form>
+    </article>
+  </div>
+</section>
+
+<footer class="container">
+  <small>
+    <a href="#">Política de seguridad</a> • 
+    <a href="#">Soporte TI</a>
+  </small>
+</footer>
+
+<script>
+const supabaseUrl = "https://TU_PROYECTO.supabase.co";
+const supabaseKey = "TU_PUBLIC_ANON_KEY";
+const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
+
+let currentUser = null;
+let isAdmin = false;
+
+async function register(){
+  const email=email.value;
+  const password=password.value;
+  const {error}=await supabase.auth.signUp({email,password});
+  if(error) alert(error.message);
+  else alert("Verifica tu correo.");
+}
+
+async function login(){
+  const {data,error}=await supabase.auth.signInWithPassword({
+    email:email.value,
+    password:password.value
+  });
+  if(error) return alert(error.message);
+  currentUser=data.user;
+  await checkRole();
+  loadExpenses();
+}
+
+async function logout(){
+  await supabase.auth.signOut();
+  location.reload();
+}
+
+async function checkRole(){
+  const {data}=await supabase.from("profiles")
+    .select("role").eq("id",currentUser.id).single();
+  isAdmin=data?.role==="admin";
+  if(isAdmin) document.getElementById("adminActions").classList.remove("hidden");
+}
+
+document.getElementById("expenseForm").addEventListener("submit",async e=>{
+  e.preventDefault();
+  if(!currentUser) return alert("Inicia sesión");
+
+  let receiptUrl=null;
+  const file=document.getElementById("receipt").files[0];
+  if(file){
+    const {data}=await supabase.storage
+      .from("comprobantes")
+      .upload(`${currentUser.id}/${Date.now()}-${file.name}`,file);
+    receiptUrl=data?.path;
+  }
+
+  await supabase.from("gastos").insert([{
+    user_id:currentUser.id,
+    amount:amount.value,
+    category:category.value,
+    description:description.value,
+    receipt_url:receiptUrl,
+    status:"pendiente"
+  }]);
+
+  e.target.reset();
+  loadExpenses();
+});
+
+async function approve(id,status){
+  await supabase.from("gastos")
+    .update({status})
+    .eq("id",id);
+  loadExpenses();
+}
+
+async function loadExpenses(){
+  if(!currentUser) return;
+  let query=supabase.from("gastos")
+    .select("*, profiles(email)")
+    .order("created_at",{ascending:false});
+  if(!isAdmin) query=query.eq("user_id",currentUser.id);
+  const {data}=await query;
+  expensesTable.innerHTML="";
+  data.forEach(e=>{
+    let row=`<tr>
+      <td>${new Date(e.created_at).toLocaleDateString()}</td>
+      <td>${e.profiles?.email??"-"}</td>
+      <td>$${e.amount}</td>
+      <td>${e.category}</td>
+      <td class="status-${e.status}">${e.status}</td>`;
+    if(isAdmin && e.status==="pendiente"){
+      row+=`<td>
+        <button onclick="approve('${e.id}','aprobado')">✔</button>
+        <button onclick="approve('${e.id}','rechazado')">✖</button>
+      </td>`;
+    } else if(isAdmin){ row+="<td>-</td>"; }
+    row+="</tr>";
+    expensesTable.innerHTML+=row;
+  });
+}
+
+async function generateReport(){
+  const {data}=await supabase.from("gastos")
+    .select("amount").eq("status","aprobado");
+  const total=data.reduce((s,x)=>s+Number(x.amount),0);
+  alert("Total aprobado: $"+total.toFixed(2));
+}
+
+async function exportCSV(){
+  const {data}=await supabase.from("gastos")
+    .select("*").eq("status","aprobado");
+  let csv="Fecha,Monto,Categoria,Estado\n";
+  data.forEach(e=>{
+    csv+=`${e.created_at},${e.amount},${e.category},${e.status}\n`;
+  });
+  const blob=new Blob([csv]);
+  const link=document.createElement("a");
+  link.href=URL.createObjectURL(blob);
+  link.download="reporte.csv";
+  link.click();
+}
+</script>
+
+</body>
+</html>
